@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# find-colleague 防泄漏闸门（pre-push）。命中即阻断 push。
+# 启用：git config core.hooksPath hooks
+#
+# 设计：本脚本是 tracked / 会被公开，所以**不含任何公司专属字面量**。
+#   - 通用密钥/站点模式直接内联（这些词本身不敏感）。
+#   - 公司专属词（公司名/内部域名/真实人名/内部 page-id）放在 gitignored 的
+#     data/.leakcheck-denylist（每行一个词/正则），本脚本运行时读取它。
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+fail=0
+
+# 1) 私有路径绝不能被跟踪
+priv=$(git ls-files | grep -E '^(data/|config\.toml$|CLAUDE\.md$|docs/)' || true)
+if [ -n "$priv" ]; then
+  echo "✗ BLOCK: 私有路径被跟踪（应 gitignore）:"; echo "$priv"; fail=1
+fi
+
+# 扫描范围：所有 tracked 文件，但排除本 hook 自身（它含模式字面量，会自我误报）
+scan() { git ls-files -z -- ':(exclude)hooks/pre-push' | xargs -0 "$@" 2>/dev/null || true; }
+
+# 2) 通用密钥模式（高信号、不会误报占位；真实站点/公司名交给 denylist）
+pat='sk-or-v1-|sk-ant-|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+hits=$(scan grep -nIE "$pat")
+if [ -n "$hits" ]; then
+  echo "✗ BLOCK: 疑似真实密钥 出现在待发布文件:"; echo "$hits"; fail=1
+fi
+
+# 3) 公司专属 denylist（gitignored，可缺省）—— 公司名/内部域名/真实人名/page-id
+deny="data/.leakcheck-denylist"
+if [ -f "$deny" ]; then
+  terms=$(grep -vE '^\s*(#|$)' "$deny" || true)
+  if [ -n "$terms" ]; then
+    dhits=$(scan grep -nIF "$terms")
+    if [ -n "$dhits" ]; then
+      echo "✗ BLOCK: denylist 词出现在待发布文件:"; echo "$dhits"; fail=1
+    fi
+  fi
+fi
+
+if [ "$fail" -ne 0 ]; then echo "→ push 已中止。修掉上面的命中再试。"; exit 1; fi
+echo "✓ pre-push 防泄漏闸门：通过"

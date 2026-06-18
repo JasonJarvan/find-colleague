@@ -1,0 +1,27 @@
+# secrets
+config.toml
+.env
+.env.*
+
+# 私有数据：周报原文/映射/抽取/DB —— 运行态由 `find-colleague ingest` 重建，不入库
+data/
+
+# 内部 harness/记忆/协作文档（含 everclaw、内部 UUID/MR、人名、邮箱）——不发布
+docs/
+
+# 内部项目入口文档（含内部 URL/人名/harness 引用）——不发布
+CLAUDE.md
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+dist/
+*.egg-info/
+
+# os/ide
+.DS_Store
+.idea/
+.vscode/
+*.swp

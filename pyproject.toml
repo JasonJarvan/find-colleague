@@ -1,0 +1,18 @@
+[project]
+name = "find-colleague"
+version = "0.2.0"
+description = "根据项目找负责的同事——基于团队周报历史的语义召回 (v2: SQLite + 向量)"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+]
+
+[project.scripts]
+find-colleague = "find_colleague.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/find_colleague"]
