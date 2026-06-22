@@ -11,6 +11,22 @@
 | **v2** | **CLI**（本版） | SQLite + 向量（qwen3-embedding-8b） | **当前** |
 | v3 | Service + MCP | SQLite + 向量 | 规划中 |
 
+## 快速开始（一句话安装）
+
+**v2 — CLI（推荐）**
+```bash
+uv tool install git+https://github.com/JasonJarvan/find-colleague
+```
+
+**v1 — Claude Code Skill**（克隆进个人 skills 目录，之后在 Claude Code 里直接问「X 项目该找谁」）
+```bash
+git clone https://github.com/JasonJarvan/find-colleague.git ~/.claude/skills/find-colleague
+```
+
+> ⚠️ 仓库**不含数据**（`data/` 已 gitignore）。装好后首次使用需补一步：填 `config.toml` 的
+> `OPENROUTER_API_KEY` + `data/sources.md` 的真实 page-id，再 `find-colleague ingest` 从
+> Confluence 重建映射表（需 Atlassian 访问）。详见下方 §配置。
+
 ## 安装
 
 依赖 [uv](https://github.com/astral-sh/uv)（或 pip）：

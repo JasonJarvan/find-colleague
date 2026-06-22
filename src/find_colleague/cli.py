@@ -53,7 +53,7 @@ def cmd_embed(args, cfg):
 def cmd_query(args, cfg):
     conn = db.connect(cfg.db_path)
     exclude = {args.exclude} if args.exclude else set()
-    hits = recall.semantic_query(conn, cfg, args.text, k=args.k, team=args.team, exclude=exclude)
+    hits = recall.hybrid_query(conn, cfg, args.text, k=args.k, team=args.team, exclude=exclude)
     _print_hits(hits, show_score=True)
 
 
