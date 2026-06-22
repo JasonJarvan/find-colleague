@@ -12,6 +12,10 @@ docs/
 # 内部项目入口文档（含内部 URL/人名/harness 引用）——不发布
 CLAUDE.md
 
+# crawl/access 层含私域访问逻辑（经 sources.md 读真实 page/folder id）——不随仓库发布。
+# cli.py 对 crawl 子命令惰性导入：公开 clone 里本文件缺失时优雅降级，不 import 崩溃。
+src/find_colleague/crawl.py
+
 # python
 .venv/
 __pycache__/

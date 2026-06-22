@@ -8,9 +8,10 @@ import numpy as np
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS colleagues (
-    id    INTEGER PRIMARY KEY,
-    name  TEXT UNIQUE NOT NULL,
-    team  TEXT NOT NULL                 -- 产品 | 工程 | 运营 | 算法
+    id        INTEGER PRIMARY KEY,
+    name      TEXT UNIQUE NOT NULL,
+    team      TEXT NOT NULL,            -- 产品 | 工程 | 运营 | 算法
+    position  TEXT                      -- 1:1 职位（如「全栈工程师」），LLM 推断 + User review 固化
 );
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -69,7 +70,16 @@ def connect(db_path: Path) -> sqlite3.Connection:
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    _migrate(conn)
     conn.commit()
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """幂等迁移：旧库 colleagues 无 position 列时补上。CREATE TABLE IF NOT EXISTS
+    不会改既有表，故老库要靠 ALTER TABLE 补列。"""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(colleagues)")}
+    if "position" not in cols:
+        conn.execute("ALTER TABLE colleagues ADD COLUMN position TEXT")
 
 
 def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:

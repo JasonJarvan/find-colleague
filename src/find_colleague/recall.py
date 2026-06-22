@@ -221,6 +221,50 @@ def who_on_project(conn: sqlite3.Connection, query: str, exclude: set[str] | Non
     ]
 
 
+@dataclass
+class Person:
+    name: str
+    team: str
+    position: str | None
+    works: list[tuple[str, str]]  # [(项目, 工作summary), ...]
+
+
+def people(
+    conn: sqlite3.Connection,
+    team: str | None = None,
+    name: str | None = None,
+) -> list[Person]:
+    """逐人聚合：姓名 + 团队 + 职位 + 其项目→工作清单。
+    覆盖所有同事（含无贡献者）。按 团队→姓名 排序；--team / --name 过滤。"""
+    where, params = [], []
+    if team:
+        where.append("col.team = ?")
+        params.append(team)
+    if name:
+        where.append("col.name = ?")
+        params.append(name)
+    clause = ("WHERE " + " AND ".join(where)) if where else ""
+    rows = conn.execute(
+        "SELECT col.name, col.team, col.position, p.name AS project, c.summary "
+        "FROM colleagues col "
+        "LEFT JOIN contributions c ON c.colleague_id = col.id "
+        "LEFT JOIN projects p ON p.id = c.project_id "
+        f"{clause} "
+        "ORDER BY col.team, col.name",
+        tuple(params),
+    ).fetchall()
+
+    by_name: dict[str, Person] = {}
+    order: list[str] = []
+    for r in rows:
+        if r["name"] not in by_name:
+            by_name[r["name"]] = Person(r["name"], r["team"], r["position"], [])
+            order.append(r["name"])
+        if r["project"] is not None:
+            by_name[r["name"]].works.append((r["project"], r["summary"]))
+    return [by_name[n] for n in order]
+
+
 def projects_of(conn: sqlite3.Connection, name: str) -> list[Hit]:
     rows = conn.execute(
         "SELECT col.name colleague, col.team, p.name project, c.summary, c.source_key "

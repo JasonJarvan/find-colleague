@@ -1,4 +1,4 @@
-"""find-colleague CLI —— init / ingest / embed / query / who / projects / models / stats。"""
+"""find-colleague CLI —— init / ingest / embed / query / who / projects / positions / people / models / stats。"""
 from __future__ import annotations
 
 import argparse
@@ -69,12 +69,72 @@ def cmd_projects(args, cfg):
     _print_hits(recall.projects_of(conn, args.name), show_score=False)
 
 
+def cmd_positions(args, cfg):
+    from .positions import load_positions
+
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    stats = load_positions(conn, Path(args.draft))
+    print(f"职位载入：{stats}（草稿+已确认覆盖，仅更新 DB 已有同事）")
+
+
+def cmd_people(args, cfg):
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    persons = recall.people(conn, team=args.team, name=args.name)
+    if not persons:
+        print("（无匹配同事——检查 --name/--team，或先 ingest 周报）")
+        return
+    current_team = None
+    for p in persons:
+        if p.team != current_team:
+            current_team = p.team
+            print(f"\n## {current_team}团队")
+        pos = p.position or "（职位待定）"
+        print(f"\n· {p.name}（{p.team}）｜ {pos}")
+        if p.works:
+            for proj, summary in p.works:
+                print(f"    - {proj}：{summary}")
+        else:
+            print("    （暂无项目记录）")
+
+
 def cmd_models(args, cfg):
     from .embed import list_models
 
     for m in list_models(cfg):
         mid = m.get("id") or m.get("name") or m
         print(mid)
+
+
+_CRAWL_UNAVAILABLE = (
+    "crawl 含私域访问逻辑（page/folder id、人名等），未随仓库发布。\n"
+    "公开 clone 里 src/find_colleague/crawl.py 缺失属预期；其余命令（ingest/embed/query/who/...）正常可用。\n"
+    "如需 refresh：见 docs runbook，或由有权限者本地补 crawl 模块。"
+)
+
+
+def _load_crawl():
+    """惰性导入 crawl 模块。缺失（公开 clone）时返回 None，不让整个 CLI import 崩。"""
+    try:
+        from . import crawl  # noqa: PLC0415
+    except ImportError:
+        return None
+    return crawl
+
+
+def cmd_crawl(args, cfg):
+    crawl = _load_crawl()
+    if crawl is None:
+        print(_CRAWL_UNAVAILABLE)
+        return 2
+    if args.plan:
+        crawl.plan(space=args.space, since=args.since)
+        return 0
+    conn = db.connect(cfg.db_path)
+    only = [args.only] if args.only else None
+    crawl.run(conn, cfg, only=only, dry_run=args.dry_run, no_embed=args.no_embed)
+    return 0
 
 
 def cmd_stats(args, cfg):
@@ -122,6 +182,29 @@ def main(argv=None) -> int:
     pp = sub.add_parser("projects", help="某同事在做哪些项目")
     pp.add_argument("name")
     pp.set_defaults(func=cmd_projects)
+
+    ppos = sub.add_parser("positions", help="从 positions-draft.md 把职位载入 colleagues.position")
+    ppos.add_argument("--load", action="store_true", help="（默认行为）载入职位草稿 + 已确认覆盖")
+    ppos.add_argument("--draft", default=str(REPO_ROOT / "data" / "positions-draft.md"))
+    ppos.set_defaults(func=cmd_positions)
+
+    ppl = sub.add_parser("people", help="逐人打印：姓名（团队）｜职位 ｜ 项目→工作清单")
+    ppl.add_argument("--team", choices=["产品", "工程", "运营", "算法"])
+    ppl.add_argument("--name", help="只看某一个人")
+    ppl.set_defaults(func=cmd_people)
+
+    pc = sub.add_parser(
+        "crawl",
+        help="务实编排：--plan 打印抓取计划；默认 scan data/raw 新快照→抽取→ingest（含私域逻辑，未随仓库发布则降级提示）",
+    )
+    pc.add_argument("--plan", action="store_true", help="只打印抓取计划（page-id + CQL 模板），不抽取")
+    pc.add_argument("--space", default="all", help="--plan 时限定 space（取值见 data/sources.md；默认 all）")
+    pc.add_argument("--since", help="--plan 时按年月过滤（YYYY-MM）")
+    pc.add_argument("--ingest", action="store_true", help="（默认行为）scan→抽取→ingest")
+    pc.add_argument("--only", help="只处理 data/raw 下指定文件名（验证用，省 token）")
+    pc.add_argument("--dry-run", action="store_true", help="只扫描列出待抽取文件，不调 LLM、不写库")
+    pc.add_argument("--no-embed", action="store_true", help="入库后不补 embedding")
+    pc.set_defaults(func=cmd_crawl)
 
     sub.add_parser("models", help="列 OpenRouter 可用 embedding 模型").set_defaults(func=cmd_models)
     sub.add_parser("stats", help="DB 概况").set_defaults(func=cmd_stats)
