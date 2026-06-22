@@ -75,12 +75,28 @@ find-colleague query "agent 消息总线"
 # 查询：某同事在做哪些项目
 find-colleague projects "张三"
 
+# 职位/人物表：逐人列「姓名（团队）｜ 职位 ｜ 项目→工作清单」，按团队分组
+# 例：列出工程团队每个人的职位和在做的项目
+find-colleague people --team 工程
+find-colleague people --name "张三"   # 只看某一个人
+
+# 爬取编排（把 refresh 流程固化的子命令）
+find-colleague crawl --plan --space DD --since 2026-06   # 读 sources.md 打印抓取计划
+find-colleague crawl --dry-run                            # 扫 data/raw 列出待抽取快照，不调 LLM
+find-colleague crawl                                      # 默认：增量 scan→LLM 抽取→ingest→embed
+
 # 查看统计
 find-colleague stats
 
 # 查看支持的 embedding 模型
 find-colleague models
 ```
+
+> **关于 `crawl`**：它把 refresh 流程固化为一个子命令——`--plan` 读 `data/sources.md` 打印抓取计划，
+> 默认增量扫描 `data/raw/` 新快照 → LLM 抽取 → ingest → embed。注意：从 Confluence **拉取原文**
+> 这一步仍依赖 Atlassian MCP（由 agent 执行），`crawl` 自身只负责 plan + 抽取入库。此外，**`crawl`
+> 的访问逻辑模块 `crawl.py` 含私域信息（page/folder id、人名等），不随仓库发布**（已 gitignore）——
+> 公开 clone 里没有它，跑 `find-colleague crawl` 会优雅提示「未随仓库发布」，其余命令照常可用。
 
 ## 数据来源
 
