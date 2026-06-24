@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from . import db
+from . import db, period
 from .config import Config
 from .embed import embed_one
 
@@ -263,6 +263,83 @@ def people(
         if r["project"] is not None:
             by_name[r["name"]].works.append((r["project"], r["summary"]))
     return [by_name[n] for n in order]
+
+
+@dataclass
+class WorkEntry:
+    colleague: str
+    team: str
+    period: str
+    summary: str
+    source: str
+
+
+@dataclass
+class ProjectWork:
+    project: str
+    entries: list[WorkEntry]
+    # period 无法解析、被时间筛选排除的条目；时间筛选未开启时恒为空
+    unknown_period: list[WorkEntry]
+
+
+def worklog(
+    conn: sqlite3.Connection,
+    project: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+) -> list[ProjectWork]:
+    """项目维度「人-已做工作」表，可按周筛选时间。
+
+    - project=None → 全部项目分组；否则聚焦该项目（先别名归一，再 LIKE 兜底）。
+    - since/until → 按「触及的周」展开求交集筛选（语义见 period.py / ADR-0001）。
+      无法解析周的 contribution 在筛选开启时归入该项目的 unknown_period 桶（不静默丢弃）。
+    返回按 项目名→（团队,人名,period）排序的分组列表。空项目（筛后无条目且无未知）不返回。
+    """
+    selected = period.select_weeks(since, until)
+
+    where, params = "", ()
+    if project:
+        canon = conn.execute(
+            "SELECT p.name FROM project_aliases a JOIN projects p ON p.id = a.project_id "
+            "WHERE a.alias = ?",
+            (project,),
+        ).fetchone()
+        if canon:
+            where, params = "WHERE p.name = ?", (canon["name"],)
+        else:
+            where, params = "WHERE p.name LIKE ?", (f"%{project}%",)
+
+    rows = conn.execute(
+        "SELECT p.name AS project, col.name AS colleague, col.team, "
+        "       c.period, c.summary, c.source_key "
+        "FROM contributions c "
+        "JOIN colleagues col ON col.id = c.colleague_id "
+        "JOIN projects p ON p.id = c.project_id "
+        f"{where} "
+        "ORDER BY p.name, col.team, col.name, c.period",
+        params,
+    ).fetchall()
+
+    grouped: dict[str, ProjectWork] = {}
+    order: list[str] = []
+    for r in rows:
+        proj = r["project"]
+        if proj not in grouped:
+            grouped[proj] = ProjectWork(proj, [], [])
+            order.append(proj)
+        entry = WorkEntry(
+            r["colleague"], r["team"], r["period"] or "", r["summary"], r["source_key"] or ""
+        )
+        if selected is not None and period.parse_period_to_weeks(r["period"]) is None:
+            grouped[proj].unknown_period.append(entry)
+        elif period.period_matches(r["period"], selected):
+            grouped[proj].entries.append(entry)
+
+    return [
+        grouped[p]
+        for p in order
+        if grouped[p].entries or grouped[p].unknown_period
+    ]
 
 
 def projects_of(conn: sqlite3.Connection, name: str) -> list[Hit]:

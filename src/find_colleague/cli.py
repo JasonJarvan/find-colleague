@@ -1,4 +1,4 @@
-"""find-colleague CLI —— init / ingest / embed / query / who / projects / positions / people / models / stats。"""
+"""find-colleague CLI —— init / ingest / embed / query / who / projects / positions / people / worklog / models / stats。"""
 from __future__ import annotations
 
 import argparse
@@ -97,6 +97,41 @@ def cmd_people(args, cfg):
                 print(f"    - {proj}：{summary}")
         else:
             print("    （暂无项目记录）")
+
+
+def cmd_worklog(args, cfg):
+    from .period import select_weeks
+
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    try:
+        select_weeks(args.since, args.until)  # 提前校验边界格式，给清晰报错
+    except ValueError as e:
+        print(f"时间参数有误：{e}")
+        return 2
+    groups = recall.worklog(conn, project=args.project, since=args.since, until=args.until)
+    if not groups:
+        print("（无匹配——检查 --project / 时间范围，或先 ingest 周报）")
+        return 0
+    span = ""
+    if args.since or args.until:
+        span = f"（时间：{args.since or '不限'} ~ {args.until or '不限'}，按周展开）"
+    for g in groups:
+        print(f"\n## {g.project}{span}")
+        if g.entries:
+            current = None
+            for e in g.entries:
+                key = (e.colleague, e.team)
+                if key != current:
+                    current = key
+                    print(f"\n· {e.colleague}（{e.team}）")
+                print(f"    - 〔{e.period or '未注明'}〕{e.summary}")
+        else:
+            print("    （所选时间内无记录）")
+        if g.unknown_period:
+            print("\n  ⚠ 未知时间（period 无法解析，未计入筛选；原文保留）：")
+            for e in g.unknown_period:
+                print(f"    - {e.colleague}（{e.team}）〔{e.period or '空'}〕{e.summary}")
 
 
 def cmd_models(args, cfg):
@@ -205,6 +240,15 @@ def main(argv=None) -> int:
     pc.add_argument("--dry-run", action="store_true", help="只扫描列出待抽取文件，不调 LLM、不写库")
     pc.add_argument("--no-embed", action="store_true", help="入库后不补 embedding")
     pc.set_defaults(func=cmd_crawl)
+
+    pwl = sub.add_parser(
+        "worklog",
+        help="项目视角：项目→人→已做工作（可按周筛时间）。--project 聚焦单项目，省略则全部分组",
+    )
+    pwl.add_argument("--project", help="聚焦某项目（支持别名；省略则全部项目分组）")
+    pwl.add_argument("--since", help="起始（含），YYYY-MM-DD / YYYY-MM / YYYY-Www；按触及的周展开")
+    pwl.add_argument("--until", help="截止（含），同上格式")
+    pwl.set_defaults(func=cmd_worklog)
 
     sub.add_parser("models", help="列 OpenRouter 可用 embedding 模型").set_defaults(func=cmd_models)
     sub.add_parser("stats", help="DB 概况").set_defaults(func=cmd_stats)

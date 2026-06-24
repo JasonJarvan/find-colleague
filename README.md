@@ -80,6 +80,14 @@ find-colleague projects "张三"
 find-colleague people --team 工程
 find-colleague people --name "张三"   # 只看某一个人
 
+# 项目视角：项目→人→已做工作（可按周筛时间）
+# 维度区分：who=项目→人；people=人→职位+项目；worklog=项目→人→已做工作（带时间，可筛）
+find-colleague worklog --project "EverOS Cloud"                       # 聚焦单项目，全部时间
+find-colleague worklog                                                # 省略 --project：全部项目分组
+find-colleague worklog --project "EverOS Cloud" --since 2026-06-15    # 只看某周起（按触及的周展开）
+find-colleague worklog --since 2026-06-15 --until 2026-06-21          # 指定周区间
+find-colleague worklog --since 2026-06                                # 年月简写（也支持 YYYY-Www）
+
 # 爬取编排（把 refresh 流程固化的子命令）
 find-colleague crawl --plan --space DD --since 2026-06   # 读 sources.md 打印抓取计划
 find-colleague crawl --dry-run                            # 扫 data/raw 列出待抽取快照，不调 LLM
@@ -97,6 +105,14 @@ find-colleague models
 > 这一步仍依赖 Atlassian MCP（由 agent 执行），`crawl` 自身只负责 plan + 抽取入库。此外，**`crawl`
 > 的访问逻辑模块 `crawl.py` 含私域信息（page/folder id、人名等），不随仓库发布**（已 gitignore）——
 > 公开 clone 里没有它，跑 `find-colleague crawl` 会优雅提示「未随仓库发布」，其余命令照常可用。
+
+> **关于 `worklog` 的时间筛选**：粒度=**周，周一为一周起始**（业务背景：每周一写周报，
+> 总结上周 + 计划本周）。`--since/--until` 接受 `YYYY-MM-DD` / `YYYY-MM` / `YYYY-Www`，
+> 输入范围按**「触及的周」展开**——只要与某周（周一–周日）有交集，该周整周纳入。例：
+> `--since 2026-06-14 --until 2026-06-17`（上周日~本周三）会同时命中上周与本周两周。
+> 周报 `period` 字段写法历史异构（`Week 6.15` / `2026-06-01~06-14` 等），命令内部统一归一到周；
+> 个别**无法解析**的 period 在开启时间筛选时不计入结果，但会汇总到该项目的「未知时间」桶并标注原文，
+> 不静默丢弃。
 
 ## 数据来源
 
