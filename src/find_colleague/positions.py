@@ -101,6 +101,52 @@ def merge_colleagues(
     return {"merged": True, "moved": moved, "src_id": src_id, "dst_id": dst_id}
 
 
+def merge_projects(
+    conn: sqlite3.Connection, src_name: str, dst_name: str
+) -> dict[str, object]:
+    """把 src_name 项目合并进 dst_name（dst 为规范名），幂等安全。
+
+    - src 的所有 contributions.project_id 改挂到 dst；
+    - 在 project_aliases 登记 src_name → dst（按表 schema：alias PK, project_id）；
+    - 删除 src 那条 projects 行。
+    - 不改 contributions.embed_text / embedding：项目归并不改语义文本，无需重嵌。
+    - project_aliases 中原本指向 src 的别名一并改挂到 dst。
+    - 幂等：若 src project 已不存在（已合并过），返回 merged=False，不报错。
+    """
+    src = conn.execute(
+        "SELECT id FROM projects WHERE name = ?", (src_name,)
+    ).fetchone()
+    dst = conn.execute(
+        "SELECT id FROM projects WHERE name = ?", (dst_name,)
+    ).fetchone()
+    if dst is None:
+        raise ValueError(f"目标项目不存在: {dst_name}")
+    if src is None:
+        return {"merged": False, "moved": 0, "reason": f"{src_name} 不存在（可能已合并）"}
+    src_id, dst_id = src["id"], dst["id"]
+    if src_id == dst_id:
+        return {"merged": False, "moved": 0, "reason": "src 与 dst 同一行"}
+
+    moved = conn.execute(
+        "UPDATE contributions SET project_id = ? WHERE project_id = ?",
+        (dst_id, src_id),
+    ).rowcount
+    # 原指向 src 的别名改挂 dst
+    conn.execute(
+        "UPDATE project_aliases SET project_id = ? WHERE project_id = ?",
+        (dst_id, src_id),
+    )
+    # 登记 src_name → dst 别名（幂等）
+    conn.execute(
+        "INSERT INTO project_aliases(alias, project_id) VALUES(?, ?) "
+        "ON CONFLICT(alias) DO UPDATE SET project_id = excluded.project_id",
+        (src_name, dst_id),
+    )
+    conn.execute("DELETE FROM projects WHERE id = ?", (src_id,))
+    conn.commit()
+    return {"merged": True, "moved": moved, "src_id": src_id, "dst_id": dst_id}
+
+
 def load_positions(conn: sqlite3.Connection, md_path: Path) -> dict[str, int]:
     """把草稿 + CONFIRMED 覆盖写进 colleagues.position（只更新 DB 已存在的人）。
 

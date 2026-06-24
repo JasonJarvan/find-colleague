@@ -104,6 +104,78 @@ find-colleague models
 
 **数据不入仓库**（`data/` 整目录在 `.gitignore`），每次运行 `find-colleague ingest` 从 Confluence 重建。
 
+## 刷新数据（端到端 runbook）
+
+把一批最新周报抽取入库、刷新「同事↔项目」映射，v2 的完整流程如下。
+
+> 这套流程主要面向**有 Confluence 访问权限的数据持有者**：其中「fetch 原文」一步要读你团队的私有周报页，
+> 且 `crawl` 的访问逻辑模块未随仓库发布（见步骤 4 注）。**公开 clone 的用户**通常拿到的是别人建好的 DB，
+> 直接用查询命令（query / who / people）即可，不必跑刷新。
+
+### 0. 一次性配置（只做一次）
+
+```bash
+cp config.example.toml config.toml
+# 编辑 config.toml：填 OPENROUTER_API_KEY（embedding 用）；
+#   并填 [provider].llm（抽取/富化用的便宜 chat 模型，不用 Opus）。
+
+cp sources.example.md data/sources.md
+# 编辑 data/sources.md：填你团队真实的 site / space / page-id / folder-id。
+# 占位格式见 sources.example.md。
+```
+
+### 1. 出抓取计划
+
+读 `data/sources.md`，打印该抓哪些 page-id 及对应 CQL，不调任何 LLM：
+
+```bash
+find-colleague crawl --plan                       # 全部来源
+find-colleague crawl --plan --space TEAM1         # 只看某 space
+find-colleague crawl --plan --since 2026-06        # 只看某年月起的来源
+```
+
+### 2. fetch 原文（agent 步，用 Atlassian MCP）
+
+按上一步的计划，在 Claude Code 里**由 agent 用 Atlassian MCP** 抓取对应周报页，落到
+`data/raw/<team>-<period>.md`（文件头带 `page_id` 注释，供下一步增量识别），并在 `data/sources.md`
+登记本次抓取记录（`last_fetched` 等）。
+
+> **边界**：v2 的「从 Confluence 拉原文」这一步**仍由 Atlassian MCP（agent）执行，不在 CLI 里**。
+> CLI 只负责出计划（步骤 1）和落库（步骤 4）。完整的 REST 自动爬虫规划在 v3。
+
+### 3. 预演（可选）
+
+不调 LLM、不写库，先看 `data/raw/` 里有哪些新快照会被处理：
+
+```bash
+find-colleague crawl --dry-run
+find-colleague crawl --dry-run --only team1-2026-06.md   # 只验证某一个文件
+```
+
+### 4. 落库
+
+```bash
+find-colleague crawl
+```
+
+默认行为：增量 scan `data/raw/`（按 `content_hash` 记录在 `crawl_log`，已抽过的快照自动跳过）
+→ LLM 抽取（走 `config.toml` 的 `[provider].llm`，**不用 Opus**）→ ingest 入库 → embed 生成向量。
+加 `--no-embed` 可只入库、稍后再 `find-colleague embed` 补向量。
+
+> **边界**：`crawl` 的访问逻辑模块 `src/find_colleague/crawl.py` 含私域信息（page/folder id、人名等），
+> **不随仓库发布**（已 gitignore）。公开 clone 里没有它，跑 `find-colleague crawl` 会优雅提示
+> 「未随仓库发布」并退出，其余命令（query / who / people / stats 等）照常可用。
+
+### 5. 查询
+
+```bash
+find-colleague who "EverOS Cloud"      # 某项目该找谁（结构化）
+find-colleague query "agent 消息总线"   # 语义召回
+find-colleague people --team 工程       # 逐人看职位 + 在做的项目
+```
+
+也可在 Claude Code 里经 Skill 用大白话提问（「X 项目该找谁」），由 Skill 路由到上述命令。
+
 ## 脱敏说明
 
 `sources.example.md` 为占位版，不含真实站点 URL / page-id / 人名。  
